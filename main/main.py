@@ -112,7 +112,7 @@ def slicing_data(start_date: str, end_date: str) -> pd.DataFrame:
     - start_date : 슬라이싱 하려는 데이터 시작점
     - end_date : 슬라이싱 하려는 데이터의 끝 점
     
-    ## Output:1
+    ## Output:
     - df : 슬라이싱된 데이터프레임을 리턴
     """
     
