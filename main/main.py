@@ -1,3 +1,7 @@
+import sys
+
+sys.path.insert(0, r"C:\Users\signlab_039\Desktop\projects\bonglim\backend")
+
 from schema.models import *
 from src.utils.data_preprocessing import get_abno_value, get_corr_value
 from src.utils.funcs import plotting_hist_subplots
