@@ -5,3 +5,4 @@ __pycache__
 __init__.py
 .env
 MainProcess/database/schema/models.py
+data
