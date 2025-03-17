@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from .functions import db_table_to_csv, is_sorted_ascending
+from collections import Counter
+from typing import List, Tuple
 
 def slicing_data(tablename: str, start_date: str, end_date: str) -> pd.DataFrame:
     """시작 일자와 끝 일자를 기준으로 데이터를 슬라이싱한다.
@@ -149,11 +151,85 @@ def set_label_with_boring_location(df: pd.DataFrame, loc_list: list) -> pd.DataF
     """
     if not is_sorted_ascending(loc_list):
         loc_list = sorted(loc_list)
-    loc_list.insert(0, 0)
     
-    labels = [0, 1, 2, 3, 4, 5]
+    labels = [0, 1, 2, 3, 4]
     df['보링, 핀 이동구간'] = pd.cut(df['보링 가공 전,후 위치'], bins=loc_list, labels=labels, right=False)
-    df = df.loc[df['보링, 핀 이동구간'] != 0].reset_index(drop=True)
+    # df = df.loc[df['보링, 핀 이동구간'] != 0].reset_index(drop=True)
     
     return df
 
+def get_run_on_dataset(df: pd.DataFrame) -> pd.DataFrame:
+    """왼팔, 오른팔 데이터들 중에 가동 중일 때만의 데이터를 들고오기 위해, 데이터를 파싱합니다.
+    
+    ## Input:
+    - df : 작업할 데이터프레임입니다. 해당 데이터프레임의 경우 왼팔, 오른팔로 분할된 데이터여야 합니다.
+    
+    ## Output:
+    - df : 시간대가 줄어든 데이터프레임을 리턴합니다.
+    """
+    df['day'] = df['등록일'].dt.day
+    df['hour'] = df['등록일'].dt.hour
+    
+    dfs = []
+    for day in df['day'].unique():
+        LEFT = df.loc[df['day'] == day]
+        LEFT = LEFT.loc[(df['hour'] >= 6) & (df['hour'] <= 18)]
+        dfs.append(LEFT)
+    one_left_data = pd.concat(dfs, axis=0).reset_index(drop=True)
+        
+    dfs = []
+    for day in one_left_data['day'].unique():
+        day_df = one_left_data.loc[one_left_data['day'] == day]
+        if day_df['보링회전 RPM'].mean() > 0:
+            dfs.append(day_df)
+            
+    new_df = pd.concat(dfs, axis=0).reset_index(drop=True)
+    return new_df
+
+def get_tip_changed_timeline(df: pd.DataFrame) -> List[Tuple]:
+    if "FTC_FAC_NO" in df.columns:
+        idxes = []
+        for ond_idx in df.index:
+            if 0 in df.iloc[ond_idx, :].values:
+                idxes.append(ond_idx)
+        include_zero = df.loc[idxes]
+        
+        include_zero['FTC_DATETIME'] = pd.to_datetime(include_zero['FTC_DATETIME'])
+        include_zero['day'] = include_zero['FTC_DATETIME'].dt.day
+        include_zero['hour'] = include_zero['FTC_DATETIME'].dt.hour
+        
+        include_zero = include_zero.loc[("2025-03-12 00:00:00" > include_zero['FTC_DATETIME']) | ("2025-03-12 23:59:59" < include_zero['FTC_DATETIME'])]
+        include_zero = include_zero.loc[("2025-03-14 00:00:00" > include_zero['FTC_DATETIME']) | ("2025-03-14 23:59:59" < include_zero['FTC_DATETIME'])]
+        
+        start_times = []
+        end_times = []
+        for day in include_zero['day'].unique():  # 일자별 데이터
+            search_target = include_zero.loc[include_zero['day'] == day]
+            for hour in search_target['hour'].unique():  # 시간별 데이터
+                search_target2 = search_target.loc[search_target['hour'] == hour]
+                start_time = []  # 시작 시간대를 담을 빈 배열
+                end_time = []  # 끝 시간대를 담을 빈 배열 
+                for idx, val in search_target2.iterrows():  # 각 시간대의 데이터 행을 순회하며 
+                    # 0값이 하나이고, FTC_TIP1_L위치에 0이 있는 값을 시작시간대로 정의
+                    if (Counter(val.values.tolist())[0] == 1) and (val.values.tolist().index(0) == 2):
+                        start_time.append(val['FTC_DATETIME'])
+                    elif (Counter(val.values.tolist())[0] == 1) and (val.values.tolist().index(0) == 3):
+                        start_time.append(val['FTC_DATETIME'])
+                    elif Counter(val.values.tolist())[0] == 6:  # 0값이 0개인 데이터는 모두 and (val.values.tolist().index(0) != 1)
+                        end_time.append(val['FTC_DATETIME'])
+                if (len(start_time) != 0):  # 빈 배열이 아니라면 
+                    start_times.append(min(start_time))  # 시작 시간대는 최소값으로,
+                if (len(end_time) != 0):
+                    end_times.append(max(end_time))  # 끝 시간대는 최대값으로 배치
+                    
+        compare_target = []
+        for time in start_times:
+            compare_target.append((time.day, time.hour))
+            
+        end_timeline = []
+        for time in end_times:
+            target = (time.day, time.hour)
+            if target in compare_target:
+                end_timeline.append(time)
+                
+        return list(zip(start_times, end_timeline))
